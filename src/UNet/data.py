@@ -1,5 +1,4 @@
 import os
-import numpy as np
 from torch.utils.data import Dataset
 from torchvision import transforms
 from PIL import Image
@@ -28,13 +27,14 @@ class MyDataset(Dataset):
         image_path = self.images[idx]
         mask_path = os.path.join(self.mask_dir, os.path.basename(image_path).replace('.jpg', '.png'))
 
-
-        image_ori=Image.open(image_path).convert('L')
         # 官方提供的数据集中，钢材图像位深度24bit，为RGB图，但是置于PS中查看发现RGB通道值全部相等，故转化为灰度图像不丢失任何信息
+        image_ori=Image.open(image_path).convert('L').resize((192,192),Image.Resampling.BICUBIC)
+        mask_ori = Image.open(mask_path).resize((192, 192), Image.Resampling.BICUBIC)
+
 
         # 对图像应用变换
         image = self.transform(image_ori)
-        mask = self.transform(Image.open(mask_path))
+        mask = self.transform(mask_ori)
 
         return image, mask
 
@@ -42,4 +42,5 @@ class MyDataset(Dataset):
 if __name__ == '__main__':
     dataset = MyDataset(image_dir='D:\\ProjectsCollection\\dlContest\\data\\NEU_Seg-main\\images\\training',
                         mask_dir='D:\\ProjectsCollection\\dlContest\\data\\NEU_Seg-main\\annotations\\training')
-    print(dataset[0][1].size())
+
+
