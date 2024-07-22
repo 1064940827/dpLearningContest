@@ -16,6 +16,8 @@ epochs = 200
 """
 路径参数，第一次运行时调整
 """
+load_weight = False  # 是否读取已经存在的模型，若为true则默认读取最新模型，如需要读取其他模型请修改weight_read_path
+
 image_path = 'D:\\ProjectsCollection\\dlContest\\data\\NEU_Seg-main\\images\\training'  # 用于训练的图像路径
 mask_dir = 'D:\\ProjectsCollection\\dlContest\\data\\NEU_Seg-main\\annotations\\training'  # 用于训练的标签路径、
 weight_save_path = "model/{}.pth".format(datetime.now().strftime("%y%m%d-%H%M%S"))  # 用于保存权重的路径
@@ -30,9 +32,9 @@ if len(_f_set) != 0:
 """
 日志打印参数
 """
-printLoss_epochs = 5
+printLoss_i = 20
 weight_save_epochs = 20
-save_image = True
+save_image = False
 
 if __name__ == '__main__':
 
@@ -40,7 +42,7 @@ if __name__ == '__main__':
 
     data_loader = DataLoader(MyDataset(image_path, mask_dir), batch_size=batch_size, shuffle=True)
     net = UNet(4).to(device)
-    if os.path.exists(weight_read_path):
+    if load_weight & os.path.exists(weight_read_path):
         net.load_state_dict(torch.load(weight_read_path))
         print('load weights from {}'.format(weight_read_path))
     else:
@@ -62,7 +64,7 @@ if __name__ == '__main__':
             loss.backward()
             opt.step()
 
-            if i % printLoss_epochs == 0:
+            if i % printLoss_i == 0:
                 print(f'轮次: {epoch}, 训练集索引: {i}, loss: {loss.item()}')
 
             if save_image & (epoch % 10 == 1):
