@@ -1,3 +1,8 @@
+"""
+定义了训练数据集
+"""
+
+
 import os
 from torch.utils.data import Dataset
 from torchvision import transforms
@@ -29,7 +34,7 @@ class MyDataset(Dataset):
 
         # 官方提供的数据集中，钢材图像位深度24bit，为RGB图，但是置于PS中查看发现RGB通道值全部相等，故转化为灰度图像不丢失任何信息
         image_ori=Image.open(image_path).convert('L').resize((192,192),Image.Resampling.BICUBIC)
-        mask_ori = Image.open(mask_path).resize((192, 192), Image.Resampling.BICUBIC)
+        mask_ori = Image.open(mask_path).resize((192, 192), Image.Resampling.NEAREST)
 
 
         # 对图像应用变换

@@ -1,19 +1,9 @@
 import torch
 import os
 import torchvision.transforms.functional as TF
-from PIL import Image
+import matplotlib.pyplot as plt
 import numpy as np
-
-
-def printImage(img_tensor,ismask):
-    image_array = img_tensor.numpy()
-    image_array = (255 *
-                   (image_array - image_array.min()) / (image_array.max() - image_array.min())).astype(np.uint8)
-    # 创建 PIL 图像
-    image = Image.fromarray(image_array, 'L')  # 'L' 代表灰度模式
-
-    # 显示图像
-    image.show()
+from PIL import Image
 
 
 def save_combined_image(epoch, image, mask, output):
@@ -27,7 +17,7 @@ def save_combined_image(epoch, image, mask, output):
         save_dir: 保存合并图像的目录。
     """
 
-    save_dir=os.path.join('preImage', f"epoch_{epoch}.jpg")
+    save_dir = os.path.join('preImage', f"epoch_{epoch}.jpg")
 
     # 转换模型输出为图片格式
     output_img = torch.argmax(output, dim=1)  # 转为最可能的类别
@@ -46,3 +36,18 @@ def save_combined_image(epoch, image, mask, output):
 
     # 保存图像
     combined_image.save(save_dir)
+
+
+def print_tensor(tensor, isMask=True):
+    """
+    期望输入的tensor形状为[N, C, H, W],位于GPU上
+    则默认打印图像[0,C,H,W]
+    """
+    img = tensor.to('cpu')[0].permute(1, 2, 0).numpy()
+
+    if isMask:
+        img = img * 85
+
+    plt.imshow(img,cmap='viridis')
+    plt.colorbar()
+    plt.show()
