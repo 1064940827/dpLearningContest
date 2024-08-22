@@ -1,6 +1,9 @@
+"""
+用于高亮标签图像的脚本
+"""
+
 import os
 import numpy as np
-
 import cv2
 
 img_dir = "D:\\ProjectsCollection\\dlContest\\data\\NEU_Seg-gray\\annotations\\test"

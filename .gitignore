@@ -3,3 +3,7 @@
 __pycache__/
 src/UNet/model/
 src/UNet/preImage/
+data/NEU_Seg-gray/
+data/NEU_Seg-enhance/
+data/高亮对比/
+paper/

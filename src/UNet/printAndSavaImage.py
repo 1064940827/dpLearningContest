@@ -48,6 +48,6 @@ def print_tensor(tensor, isMask=True):
     if isMask:
         img = img * 85
 
-    plt.imshow(img,cmap='viridis')
+    plt.imshow(img,cmap='viridis',vmin=0,vmax=255)
     plt.colorbar()
     plt.show()
