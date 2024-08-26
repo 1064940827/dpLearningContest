@@ -2,7 +2,8 @@ import torch
 
 def confusion_matrix(pred, target, num_classes):
     # 期望传入的pred,target为[h*w]
-    matrix=torch.bincount(num_classes * target.astype(int) + pred.astype(int),
+    k=(pred>=0)&(pred<num_classes)
+    matrix=torch.bincount(num_classes * target[k].to(torch.int32) + pred[k].to(torch.int32),
                           minlength=num_classes**2).reshape(num_classes,num_classes)
     return matrix
 def IoUs_calculate(preds,targets,device,num_classes):
@@ -12,10 +13,14 @@ def IoUs_calculate(preds,targets,device,num_classes):
     assert preds.size() == targets.size(),'计算IoU时预测值与真实值数据大小不同'
     for i in range(preds.size(0)):
         confused_matrix+=confusion_matrix(preds[i].flatten(),targets[i].flatten(),num_classes)
+    print(confused_matrix)
 
     ious=(torch.diag(confused_matrix)/
-          (confused_matrix.sum(axis=1)+confused_matrix.sum(axis=0)-confused_matrix.diag()))
+          torch.maximum((confused_matrix.sum(axis=1)+confused_matrix.sum(axis=0)-confused_matrix.diag()),
+                            torch.ones(num_classes,dtype=torch.int32,device=device)))
+    print(ious)
     mIoU=ious.nanmean()
+    print(mIoU)
     return ious,mIoU
 
 
@@ -33,7 +38,7 @@ def IoUs_Evaluate(net,dataloader,device,num_classes):
         preds = net(images)
         preds=preds.argmax(dim=1)
         batch_IoUs,batch_mIoUs=IoUs_calculate(preds,targets,device,num_classes)
-        IoUs+=batch_IoUs
-        mIoU+=batch_mIoUs
+        IoUs+=batch_IoUs.cpu()
+        mIoU+=batch_mIoUs.cpu()
     net.train()
     return IoUs/num_batch,mIoU/num_batch
