@@ -17,7 +17,7 @@ def clip_gradient(optimizer, grad_clip):
                 param.grad.data.clamp_(-grad_clip, grad_clip)
 
 
-def adjust_lr(optimizer, init_lr, epoch, decay_rate=0.1, decay_epoch=100):
+def adjust_lr(optimizer, decay_epoch=100):
 
     lr_lambda = lambda epoch: 1.0 - pow((epoch / decay_epoch), 0.9)
     lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)

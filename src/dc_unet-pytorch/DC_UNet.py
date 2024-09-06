@@ -4,21 +4,28 @@ Created on Wed Jan  4 12:06:19 2023
 
 @author: loua2
 """
-
-
 import torch
 
 
 def Conv2dSame(in_channels, out_channels, kernel_size, use_bias=True, padding_layer=torch.nn.ReflectionPad2d):
+    """
+    一个输入输出图像大小保持不变的卷积层
+    """
     ka = kernel_size // 2
     kb = ka - 1 if kernel_size % 2 == 0 else ka
     return [
         padding_layer((ka, kb, ka, kb)),
+        # 反射填充部分,使卷积前后的图像大小相同
         torch.nn.Conv2d(in_channels, out_channels, kernel_size, bias=use_bias)
     ]
 
 
-def conv2d_bn(in_channels, filters, kernel_size, padding='same', activation='relu'):
+def Conv2dBatchNorm(in_channels, filters, kernel_size, padding='same', activation='relu'):
+    """
+    filters=out_channels
+    一个集成模块,组成部分:
+    卷积层(输入输出图像大小保持不变)-BatchNorm层-激活函数层
+    """
     assert padding == 'same'
     affine = False if activation == 'relu' or activation == 'sigmoid' else True
     sequence = []
@@ -36,16 +43,17 @@ def conv2d_bn(in_channels, filters, kernel_size, padding='same', activation='rel
 class DCBlock(torch.nn.Module):
     def __init__(self, in_channels, u, alpha=1.67, use_dropout=False):
         super().__init__()
-        w = alpha * u
+        w = alpha * u  # alpha约为5/3
         self.out_channel = int(w * 0.167) + int(w * 0.333) + int(w * 0.5)
-        self.conv2d_bn = conv2d_bn(in_channels, self.out_channel, 1, activation=None)
-        self.conv3x3 = conv2d_bn(in_channels, int(w * 0.167), 3, activation='relu')
-        self.conv5x5 = conv2d_bn(int(w * 0.167), int(w * 0.333), 3, activation='relu')
-        self.conv7x7 = conv2d_bn(int(w * 0.333), int(w * 0.5), 3, activation='relu')
+        self.conv2d_bn = Conv2dBatchNorm(in_channels, self.out_channel, 1, activation=None)
+
+        self.conv3x3 = Conv2dBatchNorm(in_channels, int(w * 0.167), 3, activation='relu')
+        self.conv5x5 = Conv2dBatchNorm(int(w * 0.167), int(w * 0.333), 3, activation='relu')
+        self.conv7x7 = Conv2dBatchNorm(int(w * 0.333), int(w * 0.5), 3, activation='relu')
         
-        self.conv3x3_2 = conv2d_bn(in_channels, int(w * 0.167), 3, activation='relu')
-        self.conv5x5_2 = conv2d_bn(int(w * 0.167), int(w * 0.333), 3, activation='relu')
-        self.conv7x7_2 = conv2d_bn(int(w * 0.333), int(w * 0.5), 3, activation='relu')
+        self.conv3x3_2 = Conv2dBatchNorm(in_channels, int(w * 0.167), 3, activation='relu')
+        self.conv5x5_2 = Conv2dBatchNorm(int(w * 0.167), int(w * 0.333), 3, activation='relu')
+        self.conv7x7_2 = Conv2dBatchNorm(int(w * 0.333), int(w * 0.5), 3, activation='relu')
         
         self.bn_1 = torch.nn.BatchNorm2d(self.out_channel)
         self.bn_1_2 = torch.nn.BatchNorm2d(self.out_channel)
@@ -82,8 +90,8 @@ class DCBlock(torch.nn.Module):
 class ResPathBlock(torch.nn.Module):
     def __init__(self, in_channels, filters):
         super(ResPathBlock, self).__init__()
-        self.conv2d_bn1 = conv2d_bn(in_channels, filters, 1, activation=None)
-        self.conv2d_bn2 = conv2d_bn(in_channels, filters, 3, activation='relu')
+        self.conv2d_bn1 = Conv2dBatchNorm(in_channels, filters, 1, activation=None)
+        self.conv2d_bn2 = Conv2dBatchNorm(in_channels, filters, 3, activation='relu')
         self.relu = torch.nn.ReLU()
         self.bn = torch.nn.BatchNorm2d(filters)
 
@@ -109,7 +117,7 @@ class ResPath(torch.nn.Module):
 
 
 class DC_Unet(torch.nn.Module):
-    def __init__(self, in_channels=3, out_channels=1, nf=32, use_dropout=False):
+    def __init__(self, in_channels=3, out_channels=4, nf=32, use_dropout=False):
         super(DC_Unet, self).__init__()
         self.mres_block1 = DCBlock(in_channels, u=nf)
         self.pool = torch.nn.MaxPool2d(kernel_size=2)
@@ -145,7 +153,7 @@ class DC_Unet(torch.nn.Module):
         self.mres_block9 = DCBlock(nf + nf, u=nf)
         # MultiResBlock(nf + self.mres_block1.out_channel, u=nf)
 
-        self.conv10 = conv2d_bn(self.mres_block9.out_channel, out_channels, 1, padding='same', activation='tanh')
+        self.conv10 = Conv2dBatchNorm(self.mres_block9.out_channel, out_channels, 1, padding='same', activation='tanh')
 
     def forward(self, inp):
         mresblock1 = self.mres_block1(inp)
