@@ -8,13 +8,14 @@ Created on Wed Jan  4 11:54:36 2023
 import torch
 from torch import nn
 from torch.autograd import Variable
+import torch.nn.functional as F
 import os
 import argparse
 from datetime import datetime
 from dataloader import get_loader, TestDataset
 from utils import AvgMeter, adjust_lr
-import torch.nn.functional as F
 import numpy as np
+from tqdm import tqdm
 from DC_UNet import DC_Unet
 
 
@@ -123,40 +124,43 @@ def test_mIoUs(model, path, num_classes):
     return IoUs,mIoU
 
 
-def train(train_loader, model, optimizer, epoch, test_path):
+def train(train_loader, model, optimizer, epoch):
     model.train()
+    total_step=len(train_loader)
     # ---- multi-scale training ----
     loss_record = AvgMeter()
-    for i, pack in enumerate(train_loader, start=1):
-        optimizer.zero_grad()
-        # ---- data prepare ----
-        images, gts = pack
-        images = Variable(images).cuda()
-        gts = Variable(gts).cuda()
+    with tqdm(train_loader,total=total_step,desc=f'Epoch{epoch}/{opt.epoch}',unit="batch",ncols=120) as pbar:
+        for i, pack in enumerate(pbar, start=1):
+            optimizer.zero_grad()
+            # ---- data prepare ----
+            images, gts = pack
+            images = Variable(images).cuda()
+            gts = Variable(gts).cuda()
 
-        # ---- forward ----
-        lateral_map = model(images)
-        # ---- loss function ----
-        loss_fn=nn.CrossEntropyLoss()
-        # loss = structure_loss(lateral_map, gts)
-        loss = loss_fn(lateral_map, gts)
+            # ---- forward ----
+            lateral_map = model(images)
+            # ---- loss function ----
+            loss_fn=nn.CrossEntropyLoss()
+            # loss = structure_loss(lateral_map, gts)
+            loss = loss_fn(lateral_map, gts)
 
-        # ---- backward ----
-        loss.backward()
-        # clip_gradient(optimizer, opt.clip)
-        optimizer.step()
-        # ---- recording loss ----
-        loss_record.update(loss.data, opt.batchsize)
+            # ---- backward ----
+            loss.backward()
+            # clip_gradient(optimizer, opt.clip)
+            optimizer.step()
+            # ---- recording loss ----
+            loss_record.update(loss.data, opt.batchsize)
 
-        # ---- train visualization ----
-        if i % 100 == 0 or i == total_step:
-            print('{} Epoch [{:03d}/{:03d}], Step [{:04d}/{:04d}], '
-                  ' lateral: {:0.4f}]'.
-                  format(datetime.now(), epoch, opt.epoch, i, total_step,
-                         loss_record.show()))
-    save_path = 'snapshots/{}/'.format(opt.train_save)
-    os.makedirs(save_path, exist_ok=True)
+            # ---- train visualization ----
+            if i % 10 == 0 or i == total_step:
+                pbar.set_postfix({
+                    'Loss': f'{loss_record.show():0.4f}',  # 显示当前平均损失
+                    'Step': f'{i}/{total_step}'
+                })
 
+
+    # save_path = 'snapshots/{}/'.format(opt.train_save)
+    # os.makedirs(save_path, exist_ok=True)
     # if (epoch + 1) % 1 == 0:
     #     meandice = test_meanDice(model, test_path)
     #
@@ -194,6 +198,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--augmentation',
                         default=True, help='choose to do random flip rotation')
+    parser.add_argument("--adjust_lr",type=bool,
+                        default=False, help='choose to use learning rate adjust')
 
     parser.add_argument('--batchsize', type=int,
                         default=8, help='training batch size')
@@ -201,12 +207,8 @@ if __name__ == '__main__':
     parser.add_argument('--trainsize', type=int,
                         default=256, help='training dataset size')
 
-    parser.add_argument('--train_path', type=str,
+    parser.add_argument('--data_path', type=str,
                         default='/root/autodl-tmp/data', help='path to train dataset')
-
-    parser.add_argument('--test_path', type=str,
-                        default='/root/autodl-tmp/data', help='path to testing Kvasir dataset')
-
     parser.add_argument('--train_save', type=str,
                         default='dcunet-best')
     parser.add_argument('--classes_number', type=int,
@@ -230,16 +232,17 @@ if __name__ == '__main__':
     else:
         optimizer = torch.optim.SGD(params, opt.lr, weight_decay=1e-4, momentum=0.9)
 
-    image_root = '{}/images/training/'.format(opt.train_path)
-    gt_root = '{}/annotations/training/'.format(opt.train_path)
+    image_root = '{}/images/training/'.format(opt.data_path)
+    gt_root = '{}/annotations/training/'.format(opt.data_path)
 
     train_loader = get_loader(image_root, gt_root, batchsize=opt.batchsize, trainsize=opt.trainsize,
                               augmentation=opt.augmentation)
-    total_step = len(train_loader)
 
     print("#" * 20, "Start Training", "#" * 20)
 
     for epoch in range(1, opt.epoch):
-        adjust_lr(optimizer, 100)
-        train(train_loader, model, optimizer, epoch, opt.test_path)
-        test_mIoUs(model, opt.test_path, opt.classes_number)
+        if opt.adjust_lr:
+            adjust_lr(optimizer, 100)
+            print("调整学习率至{}".format(optimizer.param_groups[0]['lr']))
+        train(train_loader, model, optimizer, epoch)
+        test_mIoUs(model, opt.data_path, opt.classes_number)

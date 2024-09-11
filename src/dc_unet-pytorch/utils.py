@@ -26,15 +26,16 @@ def adjust_lr(optimizer, decay_epoch=100):
 
 
 class AvgMeter(object):
+    # 计算num个图像的loss平均值
     def __init__(self, num=40):
-        self.num = num
+        self.num = num  # 用来指定保留计算的最后 num 个值
         self.reset()
 
     def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
+        self.val = 0  # 当前的损失值，update 方法传入的 val 参数
+        self.avg = 0  # 所有传入的值的累计平均值
+        self.sum = 0  # 所有传入的值的累加和
+        self.count = 0 # 已传入的值的总数
         self.losses = []
 
     def update(self, val, n=1):
