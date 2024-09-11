@@ -11,7 +11,7 @@ from torch.autograd import Variable
 import os
 import argparse
 from datetime import datetime
-from dataloader import get_loader, test_dataset
+from dataloader import get_loader, TestDataset
 from utils import AvgMeter, adjust_lr
 import torch.nn.functional as F
 import numpy as np
@@ -38,12 +38,6 @@ def structure_loss(pred, mask):
     return (wbce + wiou).mean()
 
 
-def confused_matrix(pred, target, num_classes):
-    # 期望传入的pred,target为[h*w]
-    k = (pred >= 0) & (pred < num_classes)
-    matrix = torch.bincount(num_classes * target[k].to(torch.int32) + pred[k].to(torch.int32),
-                            minlength=num_classes ** 2).reshape(num_classes, num_classes)
-    return matrix
 
 
 def test_meanDice(model, path):
@@ -53,9 +47,9 @@ def test_meanDice(model, path):
     #####                                             #####
 
     model.eval()
-    image_root = '{}/images/test'.format(data_path)
-    gt_root = '{}/annotations/test'.format(data_path)
-    test_loader = test_dataset(image_root, gt_root, 200)
+    image_root = '{}/images/test/'.format(data_path)
+    gt_root = '{}/annotations/test/'.format(data_path)
+    test_loader = TestDataset(image_root, gt_root, 256)
     b = 0.0
     # print('[test_size]',test_loader.size)
     for i in range(test_loader.size):
@@ -72,7 +66,6 @@ def test_meanDice(model, path):
 
         input = res
         target = np.array(gt)
-        N = gt.shape
         smooth = 1
         input_flat = np.reshape(input, (-1))
         target_flat = np.reshape(target, (-1))
@@ -87,15 +80,22 @@ def test_meanDice(model, path):
 
     return b / test_loader.size
 
+def confused_matrix(pred, target, num_classes):
+    # 期望传入的pred,target为[h*w]
+    k = (pred >= 0) & (pred < num_classes)
+    matrix = torch.bincount(num_classes * target[k].to(torch.int32) + pred[k].to(torch.int32),
+                            minlength=num_classes ** 2).reshape(num_classes, num_classes)
+    return matrix.numpy()
+
 
 def test_mIoUs(model, path, num_classes):
     # 计算mIoUs
     data_path = path
 
     model.eval()
-    image_root = '{}/images/test'.format(data_path)
-    gt_root = '{}/annotations/test'.format(data_path)
-    test_loader = test_dataset(image_root, gt_root, 200)
+    image_root = '{}/images/test/'.format(data_path)
+    gt_root = '{}/annotations/test/'.format(data_path)
+    test_loader = TestDataset(image_root, gt_root, 256)
     confused_matrix_sum = np.zeros((num_classes, num_classes), dtype=np.int64)
 
     for i in range(test_loader.size):
@@ -107,9 +107,12 @@ def test_mIoUs(model, path, num_classes):
         result = model(image)
         # res = F.upsample(res, size=target.shape, mode='bilinear', align_corners=False)
 
-        result = result.argmax(dim=1).data.cpu().numpy()
-        target = target.data.cpu().numpy()
-        confused_matrix_sum += confused_matrix(result.flatten(), target.flatten(), num_classes)
+        result = result.argmax(dim=1).data.cpu()
+        target = target.data.cpu()
+        confused_matrix_temp= confused_matrix(result.flatten(), target.flatten(), num_classes)
+        # print(confused_matrix_temp)
+        confused_matrix_sum += confused_matrix_temp
+    # print(confused_matrix_sum)
     IoUs = (np.diag(confused_matrix_sum) /
             np.maximum((confused_matrix_sum.sum(axis=1) + confused_matrix_sum.sum(axis=0) - np.diag(confused_matrix_sum)),
                         torch.ones(num_classes, dtype=torch.int64)))
@@ -134,9 +137,9 @@ def train(train_loader, model, optimizer, epoch, test_path):
         # ---- forward ----
         lateral_map = model(images)
         # ---- loss function ----
-
+        loss_fn=nn.CrossEntropyLoss()
         # loss = structure_loss(lateral_map, gts)
-        loss = nn.CrossEntropyLoss(lateral_map, gts)
+        loss = loss_fn(lateral_map, gts)
 
         # ---- backward ----
         loss.backward()
@@ -146,7 +149,7 @@ def train(train_loader, model, optimizer, epoch, test_path):
         loss_record.update(loss.data, opt.batchsize)
 
         # ---- train visualization ----
-        if i % 20 == 0 or i == total_step:
+        if i % 100 == 0 or i == total_step:
             print('{} Epoch [{:03d}/{:03d}], Step [{:04d}/{:04d}], '
                   ' lateral: {:0.4f}]'.
                   format(datetime.now(), epoch, opt.epoch, i, total_step,
@@ -154,27 +157,27 @@ def train(train_loader, model, optimizer, epoch, test_path):
     save_path = 'snapshots/{}/'.format(opt.train_save)
     os.makedirs(save_path, exist_ok=True)
 
-    if (epoch + 1) % 1 == 0:
-        meandice = test_meanDice(model, test_path)
-
-        fp = open('log/log.txt', 'a')
-        fp.write(str(meandice) + '\n')
-        fp.close()
-
-        fp = open('log/best.txt', 'r')
-        best = fp.read()
-        fp.close()
-
-        if meandice > float(best):
-            fp = open('log/best.txt', 'w')
-            fp.write(str(meandice))
-            fp.close()
-            # best = meandice
-            fp = open('log/best.txt', 'r')
-            best = fp.read()
-            fp.close()
-            torch.save(model.state_dict(), save_path + 'dcunet-best.pth')
-            print('[Saving Snapshot:]', save_path + 'dcunet-best.pth', meandice, '[best:]', best)
+    # if (epoch + 1) % 1 == 0:
+    #     meandice = test_meanDice(model, test_path)
+    #
+    #     fp = open('log/log.txt', 'a')
+    #     fp.write(str(meandice) + '\n')
+    #     fp.close()
+    #
+    #     fp = open('log/best.txt', 'r')
+    #     best = fp.read()
+    #     fp.close()
+    #
+    #     if meandice > float(best):
+    #         fp = open('log/best.txt', 'w')
+    #         fp.write(str(meandice))
+    #         fp.close()
+    #         # best = meandice
+    #         fp = open('log/best.txt', 'r')
+    #         best = fp.read()
+    #         fp.close()
+    #         torch.save(model.state_dict(), save_path + 'dcunet-best.pth')
+    #         print('[Saving Snapshot:]', save_path + 'dcunet-best.pth', meandice, '[best:]', best)
 
 
 if __name__ == '__main__':

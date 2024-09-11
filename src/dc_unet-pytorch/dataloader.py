@@ -7,7 +7,7 @@ import random
 import torch
 
 
-class PolypDataset(data.Dataset):
+class TrainDataset(data.Dataset):
     """
     dataloader for polyp segmentation tasks
     """
@@ -25,7 +25,7 @@ class PolypDataset(data.Dataset):
         if self.augmentations == True:
             print('使用随机旋转/翻转')
             self.img_transform = transforms.Compose([
-                transforms.RandomRotation(90, resample=False, expand=False, center=None),
+                transforms.RandomRotation(90, expand=False, center=None),
                 transforms.RandomVerticalFlip(p=0.5),
                 transforms.RandomHorizontalFlip(p=0.5),
                 transforms.Resize((self.trainsize, self.trainsize)),
@@ -35,11 +35,10 @@ class PolypDataset(data.Dataset):
                 #                      [0.229, 0.224, 0.225])
             ])
             self.gt_transform = transforms.Compose([
-                transforms.RandomRotation(90, resample=False, expand=False, center=None),
+                transforms.RandomRotation(90, expand=False, center=None),
                 transforms.RandomVerticalFlip(p=0.5),
                 transforms.RandomHorizontalFlip(p=0.5),
-                transforms.Resize((self.trainsize, self.trainsize)),
-                transforms.ToTensor()])
+                transforms.Resize((self.trainsize, self.trainsize),transforms.InterpolationMode.NEAREST)])
             
         else:
             print('no augmentation')
@@ -51,8 +50,7 @@ class PolypDataset(data.Dataset):
             ])
             
             self.gt_transform = transforms.Compose([
-                transforms.Resize((self.trainsize, self.trainsize)),
-                transforms.ToTensor()])
+                transforms.Resize((self.trainsize, self.trainsize))])
             
 
     def __getitem__(self, index):
@@ -71,6 +69,9 @@ class PolypDataset(data.Dataset):
         # 再次设置相同的随机种子,这是为了确保对标签图像的变换与对应的原图像的变换完全一致
         if self.gt_transform is not None:
             gt = self.gt_transform(gt)
+            gt=torch.from_numpy(np.array(gt)).long()
+            # gt.shape=[1,256,256]
+
         return image, gt
 
     def filter_files(self):
@@ -113,7 +114,7 @@ class PolypDataset(data.Dataset):
 
 def get_loader(image_root, gt_root, batchsize, trainsize, shuffle=True, num_workers=4, pin_memory=True, augmentation=False):
     # 获取一个Dataloader类,
-    dataset = PolypDataset(image_root, gt_root, trainsize, augmentation)
+    dataset = TrainDataset(image_root, gt_root, trainsize, augmentation)
     data_loader = data.DataLoader(dataset=dataset,
                                   batch_size=batchsize,
                                   shuffle=shuffle,
@@ -122,7 +123,7 @@ def get_loader(image_root, gt_root, batchsize, trainsize, shuffle=True, num_work
     return data_loader
 
 
-class test_dataset:
+class TestDataset:
     def __init__(self, image_root, gt_root, testsize):
         self.testsize = testsize
         self.images = [image_root + f for f in os.listdir(image_root) if f.endswith('.jpg') or f.endswith('.png')]
@@ -139,7 +140,9 @@ class test_dataset:
             #                      [0.229, 0.224, 0.225])
         ])
 
-        self.gt_transform = transforms.ToTensor()
+        self.gt_transform = transforms.Compose([
+            transforms.Resize((self.testsize, self.testsize),transforms.InterpolationMode.NEAREST)
+        ])
         self.size = len(self.images)
         self.index = 0
 
@@ -148,7 +151,8 @@ class test_dataset:
         image = self.transform(image).unsqueeze(0)
         # image.size=[mini_batch=1,c,h,w]
         gt = self.binary_loader(self.gts[self.index])
-
+        gt=self.gt_transform(gt)
+        gt=torch.from_numpy(np.array(gt)).long()
         name = self.images[self.index].split('/')[-1]
         # split('/')方法将文件路径按照斜杠'/'进行分割
         # 它会将路径字符串切分成多个部分
