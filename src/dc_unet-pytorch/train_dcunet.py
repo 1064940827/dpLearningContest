@@ -9,14 +9,15 @@ import torch
 from torch import nn
 from torch.autograd import Variable
 import torch.nn.functional as F
+import numpy as np
 import os
 import argparse
 from datetime import datetime
 from dataloader import get_loader, TestDataset
 from utils import AvgMeter, adjust_lr
-import numpy as np
 from tqdm import tqdm
 from DC_UNet import DC_Unet
+from log import TrainLog
 
 
 def structure_loss(pred, mask):
@@ -37,9 +38,6 @@ def structure_loss(pred, mask):
     wiou = 1 - (inter + 1) / (union - inter + 1)
 
     return (wbce + wiou).mean()
-
-
-
 
 def test_meanDice(model, path):
     # 计算meanDice系数
@@ -89,13 +87,10 @@ def confused_matrix(pred, target, num_classes):
     return matrix.numpy()
 
 
-def test_mIoUs(model, path, num_classes):
+def test_mIoUs(model, image_root,gt_root, num_classes,epoch,logWriter,isTrainSet=False):
     # 计算mIoUs
-    data_path = path
 
     model.eval()
-    image_root = '{}/images/test/'.format(data_path)
-    gt_root = '{}/annotations/test/'.format(data_path)
     test_loader = TestDataset(image_root, gt_root, 256)
     confused_matrix_sum = np.zeros((num_classes, num_classes), dtype=np.int64)
 
@@ -119,12 +114,13 @@ def test_mIoUs(model, path, num_classes):
                         torch.ones(num_classes, dtype=torch.int64)))
     mIoU=IoUs.nanmean()
 
-
+    if not isTrainSet:
+        logWriter.writeIoUlog(epoch,IoUs,mIoU)
     print("当前IoU:{},mIoU:{}".format(IoUs,mIoU))
     return IoUs,mIoU
 
 
-def train(train_loader, model, optimizer, epoch):
+def train(train_loader, model, optimizer, epoch,logWriter):
     model.train()
     total_step=len(train_loader)
     # ---- multi-scale training ----
@@ -157,6 +153,7 @@ def train(train_loader, model, optimizer, epoch):
                     'Loss': f'{loss_record.show():0.4f}',  # 显示当前平均损失
                     'Step': f'{i}/{total_step}'
                 })
+                logWriter.writeLossLog(loss_record.show(),epoch,optimizer.param_groups[0]['lr'],i,total_step)
 
 
     # save_path = 'snapshots/{}/'.format(opt.train_save)
@@ -188,7 +185,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--epoch', type=int,
-                        default=100, help='epoch number')
+                        default=200, help='epoch number')
 
     parser.add_argument('--lr', type=float,
                         default=1e-4, help='learning rate')
@@ -232,9 +229,12 @@ if __name__ == '__main__':
     else:
         optimizer = torch.optim.SGD(params, opt.lr, weight_decay=1e-4, momentum=0.9)
 
+    logWriter=TrainLog('./log/',opt)
+
     image_root = '{}/images/training/'.format(opt.data_path)
     gt_root = '{}/annotations/training/'.format(opt.data_path)
-
+    test_image_root = '{}/images/test/'.format(opt.data_path)
+    test_gt_root = '{}/annotations/test/'.format(opt.data_path)
     train_loader = get_loader(image_root, gt_root, batchsize=opt.batchsize, trainsize=opt.trainsize,
                               augmentation=opt.augmentation)
 
@@ -242,7 +242,11 @@ if __name__ == '__main__':
 
     for epoch in range(1, opt.epoch):
         if opt.adjust_lr:
-            adjust_lr(optimizer, 100)
+            adjust_lr(optimizer, opt.epoch)
             print("调整学习率至{}".format(optimizer.param_groups[0]['lr']))
-        train(train_loader, model, optimizer, epoch)
-        test_mIoUs(model, opt.data_path, opt.classes_number)
+        train(train_loader, model, optimizer, epoch,logWriter)
+        test_mIoUs(model, test_image_root,test_gt_root, opt.classes_number,epoch,logWriter,isTrainSet=False)
+        if epoch % 10 == 0:
+            test_mIoUs(model, image_root,gt_root, opt.classes_number,epoch,logWriter,isTrainSet=True)
+        if logWriter.isBestIoUGet:
+            torch.save(model.state_dict(),'./state/{}.pth'.format(logWriter.generateTime))
