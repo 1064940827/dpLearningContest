@@ -94,7 +94,7 @@ def test_mIoUs(model, image_root,gt_root, num_classes,epoch,logWriter,isTrainSet
     test_loader = TestDataset(image_root, gt_root, 256)
     confused_matrix_sum = np.zeros((num_classes, num_classes), dtype=np.int64)
 
-    for i in range(test_loader.size):
+    for i in tqdm(range(test_loader.size), desc='IoU calculate progress',unit="image",ncols=120):
         # 遍历全部的测试图像
         image, target, name = test_loader.load_data()
 
@@ -113,9 +113,8 @@ def test_mIoUs(model, image_root,gt_root, num_classes,epoch,logWriter,isTrainSet
             np.maximum((confused_matrix_sum.sum(axis=1) + confused_matrix_sum.sum(axis=0) - np.diag(confused_matrix_sum)),
                         torch.ones(num_classes, dtype=torch.int64)))
     mIoU=IoUs.nanmean()
-
     if not isTrainSet:
-        logWriter.writeIoUlog(epoch,IoUs,mIoU)
+        logWriter.writeIoULog(epoch,IoUs,mIoU)
     print("当前IoU:{},mIoU:{}".format(IoUs,mIoU))
     return IoUs,mIoU
 
@@ -206,16 +205,20 @@ if __name__ == '__main__':
 
     parser.add_argument('--data_path', type=str,
                         default='/root/autodl-tmp/data', help='path to train dataset')
-    parser.add_argument('--train_save', type=str,
-                        default='dcunet-best')
+    parser.add_argument('--weight_path',type=str,
+                        default='',help='the path of weight')
     parser.add_argument('--classes_number', type=int,
                         default=4, help='number of classes')
+
 
     opt = parser.parse_args()
 
     # ---- build models ----
     torch.cuda.set_device(0)  # set your gpu device
-    model = DC_Unet().cuda()
+    model = DC_Unet()
+    if opt.weight_path != '':
+        model.load_state_dict(torch.load(opt.weight_path))
+    model=model.cuda()
 
     # ---- flops and params ----
     # from utils.utils import CalParams
@@ -248,6 +251,11 @@ if __name__ == '__main__':
 
         # -------------------训练-----------------------
         train(train_loader, model, optimizer, epoch,logWriter)
+        if epoch>20:
+            test_mIoUs(model, test_image_root,test_gt_root, opt.classes_number,epoch,logWriter,isTrainSet=False)
+        # if epoch % 10 == 0:
+        #     test_mIoUs(model, image_root,gt_root, opt.classes_number,epoch,logWriter,isTrainSet=True)
+
 
         # -------------------测试测试集的IoU-----------------------
         test_mIoUs(model, test_image_root,test_gt_root, opt.classes_number,epoch,logWriter,isTrainSet=False)
@@ -259,3 +267,4 @@ if __name__ == '__main__':
         # -------------------保存权重-----------------------
         if logWriter.isBestIoUGet:
             torch.save(model.state_dict(),'./state/{}.pth'.format(logWriter.generateTime))
+            print("已保存最好参数!")
