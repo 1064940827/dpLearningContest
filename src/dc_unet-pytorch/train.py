@@ -244,15 +244,27 @@ if __name__ == '__main__':
     print("#" * 20, "Start Training", "#" * 20)
 
     for epoch in range(1, opt.epoch):
+        # -------------------学习率调整-----------------------
         if opt.adjust_lr:
             adjust_lr(optimizer, opt.epoch)
             print("调整学习率至{}".format(optimizer.param_groups[0]['lr']))
+
+        # -------------------训练-----------------------
         train(train_loader, model, optimizer, epoch,logWriter)
         if epoch>20:
             test_mIoUs(model, test_image_root,test_gt_root, opt.classes_number,epoch,logWriter,isTrainSet=False)
         # if epoch % 10 == 0:
         #     test_mIoUs(model, image_root,gt_root, opt.classes_number,epoch,logWriter,isTrainSet=True)
 
+
+        # -------------------测试测试集的IoU-----------------------
+        test_mIoUs(model, test_image_root,test_gt_root, opt.classes_number,epoch,logWriter,isTrainSet=False)
+
+        # -------------------测试训练集的IoU-----------------------
+        if epoch % 10 == 0:
+            test_mIoUs(model, image_root,gt_root, opt.classes_number,epoch,logWriter,isTrainSet=True)
+
+        # -------------------保存权重-----------------------
         if logWriter.isBestIoUGet:
             torch.save(model.state_dict(),'./state/{}.pth'.format(logWriter.generateTime))
             print("已保存最好参数!")
