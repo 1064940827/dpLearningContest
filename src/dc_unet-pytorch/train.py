@@ -13,6 +13,9 @@ import numpy as np
 import os
 import argparse
 from datetime import datetime
+
+from torch.optim.lr_scheduler import LambdaLR
+
 from dataloader import get_loader, TestDataset
 from utils import AvgMeter, adjust_lr
 from tqdm import tqdm
@@ -38,6 +41,7 @@ def structure_loss(pred, mask):
     wiou = 1 - (inter + 1) / (union - inter + 1)
 
     return (wbce + wiou).mean()
+
 
 def test_meanDice(model, path):
     # 计算meanDice系数
@@ -135,9 +139,11 @@ def train(train_loader, model, optimizer, epoch,logWriter):
             # ---- forward ----
             lateral_map = model(images)
             # ---- loss function ----
-            loss_fn=nn.CrossEntropyLoss()
-            # loss = structure_loss(lateral_map, gts)
+
+            loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([0.124, 0.975, 0.928, 0.9723]))
             loss = loss_fn(lateral_map, gts)
+
+            # loss = structure_loss(lateral_map, gts)
 
             # ---- backward ----
             loss.backward()
@@ -152,7 +158,7 @@ def train(train_loader, model, optimizer, epoch,logWriter):
                     'Loss': f'{loss_record.show():0.4f}',  # 显示当前平均损失
                     'Step': f'{i}/{total_step}'
                 })
-                logWriter.writeLossLog(loss_record.show(),epoch,optimizer.param_groups[0]['lr'],i,total_step)
+                logWriter.writeLossLog(loss_record.show(), epoch, optimizer.param_groups[0]['lr'], i, total_step)
 
 
     # save_path = 'snapshots/{}/'.format(opt.train_save)
@@ -232,7 +238,9 @@ if __name__ == '__main__':
     else:
         optimizer = torch.optim.SGD(params, opt.lr, weight_decay=1e-4, momentum=0.9)
 
-    logWriter=TrainLog('./log/',opt)
+    scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: 1.0 - pow((epoch / opt.epoch), 0.9))
+
+    logWriter = TrainLog('./log/', opt)
 
     image_root = '{}/images/training/'.format(opt.data_path)
     gt_root = '{}/annotations/training/'.format(opt.data_path)
@@ -244,24 +252,23 @@ if __name__ == '__main__':
     print("#" * 20, "Start Training", "#" * 20)
 
     for epoch in range(1, opt.epoch):
-        # -------------------学习率调整-----------------------
-        if opt.adjust_lr:
-            adjust_lr(optimizer, opt.epoch)
-            print("调整学习率至{}".format(optimizer.param_groups[0]['lr']))
 
         # -------------------训练-----------------------
-        train(train_loader, model, optimizer, epoch,logWriter)
-
+        train(train_loader, model, optimizer, epoch, logWriter)
 
         # -------------------测试测试集的IoU-----------------------
-        if epoch>30:
-            test_mIoUs(model, test_image_root,test_gt_root, opt.classes_number,epoch,logWriter,isTrainSet=False)
+        test_mIoUs(model, test_image_root, test_gt_root, opt.classes_number, epoch, logWriter, isTrainSet=False)
 
         # -------------------测试训练集的IoU-----------------------
-        # if epoch % 10 == 0:
-        #     test_mIoUs(model, image_root,gt_root, opt.classes_number,epoch,logWriter,isTrainSet=True)
+        if epoch % 10 == 0:
+            test_mIoUs(model, image_root, gt_root, opt.classes_number, epoch, logWriter, isTrainSet=True)
 
         # -------------------保存权重-----------------------
         if logWriter.isBestIoUGet:
-            torch.save(model.state_dict(),'./state/{}.pth'.format(logWriter.generateTime))
+            torch.save(model.state_dict(), './state/{}.pth'.format(logWriter.generateTime))
             print("已保存最好参数!")
+
+        # -------------------学习率调整-----------------------
+        if opt.adjust_lr:
+            scheduler.step()
+            print("调整学习率至{}".format(optimizer.param_groups[0]['lr']))
