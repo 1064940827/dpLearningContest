@@ -13,6 +13,9 @@ import numpy as np
 import os
 import argparse
 from datetime import datetime
+
+from torch.optim.lr_scheduler import LambdaLR
+
 from dataloader import get_loader, TestDataset
 from utils import AvgMeter, adjust_lr
 from tqdm import tqdm
@@ -38,6 +41,7 @@ def structure_loss(pred, mask):
     wiou = 1 - (inter + 1) / (union - inter + 1)
 
     return (wbce + wiou).mean()
+
 
 def test_meanDice(model, path):
     # 计算meanDice系数
@@ -79,6 +83,7 @@ def test_meanDice(model, path):
 
     return b / test_loader.size
 
+
 def confused_matrix(pred, target, num_classes):
     # 期望传入的pred,target为[h*w]
     k = (pred >= 0) & (pred < num_classes)
@@ -87,14 +92,14 @@ def confused_matrix(pred, target, num_classes):
     return matrix.numpy()
 
 
-def test_mIoUs(model, image_root,gt_root, num_classes,epoch,logWriter,isTrainSet=False):
+def test_mIoUs(model, image_root, gt_root, num_classes, epoch, logWriter, isTrainSet=False):
     # 计算mIoUs
 
     model.eval()
     test_loader = TestDataset(image_root, gt_root, 256)
     confused_matrix_sum = np.zeros((num_classes, num_classes), dtype=np.int64)
 
-    for i in tqdm(range(test_loader.size), desc='IoU calculate progress',unit="image",ncols=120):
+    for i in tqdm(range(test_loader.size), desc='IoU calculate progress', unit="image", ncols=120):
         # 遍历全部的测试图像
         image, target, name = test_loader.load_data()
 
@@ -105,26 +110,27 @@ def test_mIoUs(model, image_root,gt_root, num_classes,epoch,logWriter,isTrainSet
 
         result = result.argmax(dim=1).data.cpu()
         target = target.data.cpu()
-        confused_matrix_temp= confused_matrix(result.flatten(), target.flatten(), num_classes)
+        confused_matrix_temp = confused_matrix(result.flatten(), target.flatten(), num_classes)
         # print(confused_matrix_temp)
         confused_matrix_sum += confused_matrix_temp
     # print(confused_matrix_sum)
     IoUs = (np.diag(confused_matrix_sum) /
-            np.maximum((confused_matrix_sum.sum(axis=1) + confused_matrix_sum.sum(axis=0) - np.diag(confused_matrix_sum)),
-                        torch.ones(num_classes, dtype=torch.int64)))
-    mIoU=IoUs.nanmean()
+            np.maximum(
+                (confused_matrix_sum.sum(axis=1) + confused_matrix_sum.sum(axis=0) - np.diag(confused_matrix_sum)),
+                torch.ones(num_classes, dtype=torch.int64)))
+    mIoU = IoUs.nanmean()
     if not isTrainSet:
-        logWriter.writeIoULog(epoch,IoUs,mIoU)
-    print("当前IoU:{},mIoU:{}".format(IoUs,mIoU))
-    return IoUs,mIoU
+        logWriter.writeIoULog(epoch, IoUs, mIoU)
+    print("当前IoU:{},mIoU:{}".format(IoUs, mIoU))
+    return IoUs, mIoU
 
 
-def train(train_loader, model, optimizer, epoch,logWriter):
+def train(train_loader, model, optimizer, epoch, logWriter):
     model.train()
-    total_step=len(train_loader)
+    total_step = len(train_loader)
     # ---- multi-scale training ----
     loss_record = AvgMeter()
-    with tqdm(train_loader,total=total_step,desc=f'Epoch{epoch}/{opt.epoch}',unit="batch",ncols=120) as pbar:
+    with tqdm(train_loader, total=total_step, desc=f'Epoch{epoch}/{opt.epoch}', unit="batch", ncols=120) as pbar:
         for i, pack in enumerate(pbar, start=1):
             optimizer.zero_grad()
             # ---- data prepare ----
@@ -135,9 +141,11 @@ def train(train_loader, model, optimizer, epoch,logWriter):
             # ---- forward ----
             lateral_map = model(images)
             # ---- loss function ----
-            loss_fn=nn.CrossEntropyLoss()
-            # loss = structure_loss(lateral_map, gts)
+
+            loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([0.124, 0.975, 0.928, 0.9723]))
             loss = loss_fn(lateral_map, gts)
+
+            # loss = structure_loss(lateral_map, gts)
 
             # ---- backward ----
             loss.backward()
@@ -152,8 +160,7 @@ def train(train_loader, model, optimizer, epoch,logWriter):
                     'Loss': f'{loss_record.show():0.4f}',  # 显示当前平均损失
                     'Step': f'{i}/{total_step}'
                 })
-                logWriter.writeLossLog(loss_record.show(),epoch,optimizer.param_groups[0]['lr'],i,total_step)
-
+                logWriter.writeLossLog(loss_record.show(), epoch, optimizer.param_groups[0]['lr'], i, total_step)
 
     # save_path = 'snapshots/{}/'.format(opt.train_save)
     # os.makedirs(save_path, exist_ok=True)
@@ -194,7 +201,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--augmentation',
                         default=True, help='choose to do random flip rotation')
-    parser.add_argument("--adjust_lr",type=bool,
+    parser.add_argument("--adjust_lr", type=bool,
                         default=False, help='choose to use learning rate adjust')
 
     parser.add_argument('--batchsize', type=int,
@@ -205,11 +212,10 @@ if __name__ == '__main__':
 
     parser.add_argument('--data_path', type=str,
                         default='/root/autodl-tmp/data', help='path to train dataset')
-    parser.add_argument('--weight_path',type=str,
-                        default='',help='the path of weight')
+    parser.add_argument('--weight_path', type=str,
+                        default='', help='the path of weight')
     parser.add_argument('--classes_number', type=int,
                         default=4, help='number of classes')
-
 
     opt = parser.parse_args()
 
@@ -218,7 +224,7 @@ if __name__ == '__main__':
     model = DC_Unet()
     if opt.weight_path != '':
         model.load_state_dict(torch.load(opt.weight_path))
-    model=model.cuda()
+    model = model.cuda()
 
     # ---- flops and params ----
     # from utils.utils import CalParams
@@ -232,7 +238,9 @@ if __name__ == '__main__':
     else:
         optimizer = torch.optim.SGD(params, opt.lr, weight_decay=1e-4, momentum=0.9)
 
-    logWriter=TrainLog('./log/',opt)
+    scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: 1.0 - pow((epoch / opt.epoch), 0.9))
+
+    logWriter = TrainLog('./log/', opt)
 
     image_root = '{}/images/training/'.format(opt.data_path)
     gt_root = '{}/annotations/training/'.format(opt.data_path)
@@ -244,27 +252,23 @@ if __name__ == '__main__':
     print("#" * 20, "Start Training", "#" * 20)
 
     for epoch in range(1, opt.epoch):
-        # -------------------学习率调整-----------------------
-        if opt.adjust_lr:
-            adjust_lr(optimizer, opt.epoch)
-            print("调整学习率至{}".format(optimizer.param_groups[0]['lr']))
 
         # -------------------训练-----------------------
-        train(train_loader, model, optimizer, epoch,logWriter)
-        if epoch>20:
-            test_mIoUs(model, test_image_root,test_gt_root, opt.classes_number,epoch,logWriter,isTrainSet=False)
-        # if epoch % 10 == 0:
-        #     test_mIoUs(model, image_root,gt_root, opt.classes_number,epoch,logWriter,isTrainSet=True)
-
+        train(train_loader, model, optimizer, epoch, logWriter)
 
         # -------------------测试测试集的IoU-----------------------
-        test_mIoUs(model, test_image_root,test_gt_root, opt.classes_number,epoch,logWriter,isTrainSet=False)
+        test_mIoUs(model, test_image_root, test_gt_root, opt.classes_number, epoch, logWriter, isTrainSet=False)
 
         # -------------------测试训练集的IoU-----------------------
         if epoch % 10 == 0:
-            test_mIoUs(model, image_root,gt_root, opt.classes_number,epoch,logWriter,isTrainSet=True)
+            test_mIoUs(model, image_root, gt_root, opt.classes_number, epoch, logWriter, isTrainSet=True)
 
         # -------------------保存权重-----------------------
         if logWriter.isBestIoUGet:
-            torch.save(model.state_dict(),'./state/{}.pth'.format(logWriter.generateTime))
+            torch.save(model.state_dict(), './state/{}.pth'.format(logWriter.generateTime))
             print("已保存最好参数!")
+
+        # -------------------学习率调整-----------------------
+        if opt.adjust_lr:
+            scheduler.step()
+            print("调整学习率至{}".format(optimizer.param_groups[0]['lr']))
