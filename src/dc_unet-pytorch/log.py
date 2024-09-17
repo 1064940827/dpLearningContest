@@ -5,7 +5,7 @@ import numpy as np
 
 class TrainLog:
     def __init__(self,logPath,opt):
-        self.generateTime=datetime.now().strftime("%Y-%m-%d %H:%M")
+        self.generateTime=datetime.now().strftime("%Y-%m-%d-%H:%M")
         self.totalEpoch=opt.epoch
         self.lossLogFileName = '{}/lossRecord{}-lr={}-batchSize={}.txt'.format(logPath,self.generateTime,opt.lr,opt.batchsize)
         self.lossCSVFileName = '{}/lossRecord{}-lr={}-batchSize={}.csv'.format(logPath,self.generateTime,opt.lr,opt.batchsize)

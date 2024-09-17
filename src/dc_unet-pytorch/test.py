@@ -54,33 +54,33 @@ if __name__ == '__main__':
         result = model(image)
         # 获取图像的预测结果
         result = result.argmax(dim=1).data.cpu()
-        result = F.interpolate(result, size=(200, 200), mode='nearest').numpy()[0,0,:]
+        result_resize = F.interpolate(result.unsqueeze(1).float(), size=(200, 200), mode='nearest').long().numpy()[0,0,:]
 
         # 结果可视化
-        enhanced_result = np.zeros((result.shape[0], result.shape[1],3), dtype=np.int64)
-        enhanced_result[result==0] = [255,255,255]
-        enhanced_result[result==1] = [0,0,255]
-        enhanced_result[result==2] = [0,255,0]
-        enhanced_result[result==3] = [255,0,0]
+        enhanced_result = np.zeros((result_resize.shape[0], result_resize.shape[1],3), dtype=np.uint8)
+        enhanced_result[result_resize==0] = [255,255,255]
+        enhanced_result[result_resize==1] = [0,0,255]
+        enhanced_result[result_resize==2] = [0,255,0]
+        enhanced_result[result_resize==3] = [255,0,0]
 
         img = Image.fromarray(enhanced_result)
-        image.save(result_path+'{}-result.png'.format(name))
+        img.save(result_path+'{}-result.png'.format(name))
 
         target = target.data.cpu()
         confused_matrix_temp = confused_matrix(result.flatten(), target.flatten(), 4)
         confused_matrix_sum += confused_matrix_temp
         logFile.write(name)
-        logFile.write(confused_matrix_temp)
+        logFile.write(np.array2string(confused_matrix_temp,separator=','))
 
     IoUs = (np.diag(confused_matrix_sum) /
             np.maximum(
                 (confused_matrix_sum.sum(axis=1) + confused_matrix_sum.sum(axis=0) - np.diag(confused_matrix_sum)),
-                torch.ones(4, dtype=torch.int64)))
-    mIoU = IoUs.nanmean()
+                np.ones(4, dtype=np.int64)))
+    mIoU = IoUs.mean()
     logFile.write("总混淆矩阵为:")
-    logFile.write(IoUs)
+    logFile.write(np.array2string(IoUs))
     logFile.write("mIoUs为:")
-    logFile.write(mIoU)
+    logFile.write(np.array2string(mIoU))
     time1 = datetime.now()
     for i in range(test_dataset_timeCalculate.size):
         image, target, name = test_dataset_timeCalculate.load_data()

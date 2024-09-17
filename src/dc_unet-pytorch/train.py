@@ -111,8 +111,8 @@ def test_mIoUs(model, image_root,gt_root, num_classes,epoch,logWriter,isTrainSet
     # print(confused_matrix_sum)
     IoUs = (np.diag(confused_matrix_sum) /
             np.maximum((confused_matrix_sum.sum(axis=1) + confused_matrix_sum.sum(axis=0) - np.diag(confused_matrix_sum)),
-                        torch.ones(num_classes, dtype=torch.int64)))
-    mIoU=IoUs.nanmean()
+                        np.ones(num_classes, dtype=np.int64)))
+    mIoU=IoUs.mean()
     if not isTrainSet:
         logWriter.writeIoULog(epoch,IoUs,mIoU)
     print("当前IoU:{},mIoU:{}".format(IoUs,mIoU))
@@ -251,18 +251,15 @@ if __name__ == '__main__':
 
         # -------------------训练-----------------------
         train(train_loader, model, optimizer, epoch,logWriter)
-        if epoch>20:
-            test_mIoUs(model, test_image_root,test_gt_root, opt.classes_number,epoch,logWriter,isTrainSet=False)
-        # if epoch % 10 == 0:
-        #     test_mIoUs(model, image_root,gt_root, opt.classes_number,epoch,logWriter,isTrainSet=True)
 
 
         # -------------------测试测试集的IoU-----------------------
-        test_mIoUs(model, test_image_root,test_gt_root, opt.classes_number,epoch,logWriter,isTrainSet=False)
+        if epoch>30:
+            test_mIoUs(model, test_image_root,test_gt_root, opt.classes_number,epoch,logWriter,isTrainSet=False)
 
         # -------------------测试训练集的IoU-----------------------
-        if epoch % 10 == 0:
-            test_mIoUs(model, image_root,gt_root, opt.classes_number,epoch,logWriter,isTrainSet=True)
+        # if epoch % 10 == 0:
+        #     test_mIoUs(model, image_root,gt_root, opt.classes_number,epoch,logWriter,isTrainSet=True)
 
         # -------------------保存权重-----------------------
         if logWriter.isBestIoUGet:
