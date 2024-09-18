@@ -23,24 +23,61 @@ from DC_UNet import DC_Unet
 from log import TrainLog
 
 
-def structure_loss(pred, mask):
+def structure_loss(pred, target):
     # 弃用
 
-    weit = 1 + 5 * torch.abs(F.avg_pool2d(mask, kernel_size=31, stride=1, padding=15) - mask)
+    weit = 1 + 5 * torch.abs(F.avg_pool2d(target, kernel_size=31, stride=1, padding=15) - target)
     # 给予边界区域更大的权重
     # 使用avg_pool2d对mask进行池化操作，结果与原始mask相减，
     # 得到了边界区域的差异。然后将差异放大5倍并加1，使得边界区域的权重更大
     # shape:(minibatch,in_channels,iH,iW)
-    wbce = F.binary_cross_entropy_with_logits(pred, mask, reduce='none')
+    wbce = F.binary_cross_entropy_with_logits(pred, target, reduce='none')
     wbce = (weit * wbce).sum(dim=(2, 3)) / weit.sum(dim=(2, 3))
 
     pred = torch.sigmoid(pred)
     # 对预测值pred应用sigmoid函数，将其压缩到[0, 1]区间内，从而得到概率值
-    inter = ((pred * mask) * weit).sum(dim=(2, 3))
-    union = ((pred + mask) * weit).sum(dim=(2, 3))
+    inter = ((pred * target) * weit).sum(dim=(2, 3))
+    union = ((pred + target) * weit).sum(dim=(2, 3))
     wiou = 1 - (inter + 1) / (union - inter + 1)
 
     return (wbce + wiou).mean()
+
+def dice_loss(pred, target,class_weights=torch.ones(4).cuda()):
+    smooth=1.0
+    batch_size=pred.size(0)
+    num_classes=4
+    weighted_dice=0.0
+
+    target=F.one_hot(target,num_classes=num_classes).permute(0,3,1,2)
+
+    for c in range(num_classes):
+        # 取出当前类别的预测和目标，形状为 [batchsize, height, width]
+        pred_c = pred[:, c, :, :]
+        target_c = target[:, c, :, :]
+
+        # 将预测值和目标值展平为 [batchsize, -1]
+        pred_c_flat = pred_c.view(batch_size, -1)
+        target_c_flat = target_c.view(batch_size, -1)
+
+        # 计算交集和并集
+        intersection = (pred_c_flat * target_c_flat).sum(dim=1)
+        pred_sum = pred_c_flat.sum(dim=1)
+        target_sum = target_c_flat.sum(dim=1)
+
+        # 计算当前类别的 Dice 系数
+        dice_c = (2.0 * intersection + smooth) / (pred_sum + target_sum + smooth)
+
+        # 对当前类别的 Dice 系数乘以对应的类别权重
+        weighted_dice_c = class_weights[c] * dice_c
+
+        # 累加加权的 Dice 系数
+        weighted_dice += weighted_dice_c
+
+        # 计算所有类别加权后的平均 Dice 损失
+    weighted_dice = weighted_dice / class_weights.sum()
+
+    # 返回加权后的 Dice 损失
+    return 1 - weighted_dice.mean()
 
 
 def test_meanDice(model, path):
@@ -140,10 +177,12 @@ def train(train_loader, model, optimizer, epoch,logWriter):
             lateral_map = model(images)
             # ---- loss function ----
 
-            loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([0.124, 0.975, 0.928, 0.9723]))
-            loss = loss_fn(lateral_map, gts)
+            # loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([0.124, 0.975, 0.928, 0.9723]).cuda())
+            # loss = loss_fn(lateral_map, gts)
 
             # loss = structure_loss(lateral_map, gts)
+
+            loss=dice_loss(lateral_map,gts,torch.tensor([0.124, 0.975, 0.928, 0.9723]).cuda())
 
             # ---- backward ----
             loss.backward()
